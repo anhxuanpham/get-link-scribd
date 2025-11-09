@@ -158,9 +158,11 @@ async function loginScribd() {
             '--disable-web-security',
             '--disable-features=IsolateOrigins,site-per-process',
             '--disable-software-rasterizer',
-            '--disable-dev-shm-usage',
             '--single-process',
-            '--no-zygote'
+            '--no-zygote',
+            '--disable-crash-reporter',
+            '--crash-dumps-dir=/tmp',
+            '--disable-breakpad'
         ]
     };
 
