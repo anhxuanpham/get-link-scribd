@@ -149,6 +149,7 @@ async function loginScribd() {
 
     const launchOptions = {
         headless: 'new',
+        executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/google-chrome-stable',
         args: [
             '--no-sandbox',
             '--disable-setuid-sandbox',
@@ -156,7 +157,9 @@ async function loginScribd() {
             '--disable-dev-shm-usage',
             '--disable-gpu',
             '--disable-web-security',
-            '--disable-features=IsolateOrigins,site-per-process'
+            '--disable-features=IsolateOrigins,site-per-process',
+            '--disable-crash-reporter',
+            '--disable-extensions'
         ]
     };
 
