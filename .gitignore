@@ -17,10 +17,11 @@ cookies.backup.json
 *.log
 logs/
 
-# Puppeteer
+# Puppeteer (debug files)
 .cache/
 *.png
-*.html
+/*.html
+!templates/*.html
 
 # OS
 .DS_Store
