@@ -357,16 +357,16 @@
     </div>
 
     <script>
-        // Download counter
-        function updateStats() {
-            const count = localStorage.getItem('downloadCount') || 0;
-            document.getElementById('downloadCount').textContent = count;
-        }
-
-        function incrementDownloads() {
-            const count = parseInt(localStorage.getItem('downloadCount') || 0) + 1;
-            localStorage.setItem('downloadCount', count);
-            updateStats();
+        // Download counter - fetch from server
+        async function updateStats() {
+            try {
+                const response = await fetch('/api/stats');
+                const stats = await response.json();
+                document.getElementById('downloadCount').textContent = stats.totalDownloads;
+            } catch (e) {
+                console.error('Failed to fetch stats:', e);
+                document.getElementById('downloadCount').textContent = '?';
+            }
         }
 
         // Theme toggle
@@ -383,9 +383,6 @@
             submitBtn.disabled = true;
             submitBtn.style.display = 'none';
             document.getElementById('loading').style.display = 'block';
-
-            // Clear counted flag so next result can be counted
-            sessionStorage.removeItem('counted');
         });
 
         // Copy to clipboard function
@@ -403,19 +400,13 @@
             });
         }
 
-        // Initialize stats on load
+        // Initialize stats on load and refresh every 10 seconds
         updateStats();
+        setInterval(updateStats, 10000);
 
-        // Check if there's a download button and increment counter
+        // Auto-focus input
         window.addEventListener('load', () => {
             document.getElementById('urlInput').focus();
-
-            // If download button exists, it means a successful download
-            const downloadBtn = document.querySelector('.download-btn');
-            if (downloadBtn && !sessionStorage.getItem('counted')) {
-                incrementDownloads();
-                sessionStorage.setItem('counted', 'true');
-            }
         });
     </script>
 </body>

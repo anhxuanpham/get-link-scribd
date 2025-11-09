@@ -75,6 +75,31 @@ let browser = null;
 let lastLogin = 0;
 const SESSION_TTL = 3600 * 1000;
 const COOKIES_PATH = path.join(__dirname, 'cookies.json');
+const STATS_PATH = path.join(__dirname, 'stats.json');
+
+// Load/save download statistics
+function loadStats() {
+    if (fs.existsSync(STATS_PATH)) {
+        try {
+            return JSON.parse(fs.readFileSync(STATS_PATH, 'utf-8'));
+        } catch (e) {
+            return { totalDownloads: 0, lastUpdated: new Date().toISOString() };
+        }
+    }
+    return { totalDownloads: 0, lastUpdated: new Date().toISOString() };
+}
+
+function saveStats(stats) {
+    stats.lastUpdated = new Date().toISOString();
+    fs.writeFileSync(STATS_PATH, JSON.stringify(stats, null, 2));
+}
+
+function incrementDownloadCount() {
+    const stats = loadStats();
+    stats.totalDownloads++;
+    saveStats(stats);
+    return stats.totalDownloads;
+}
 
 function log(msg, sendToDiscord = false) {
     const timestamp = new Date().toLocaleTimeString();
@@ -556,6 +581,12 @@ async function getPDFUrl(docId) {
 
 // === ROUTE ===
 // GET route - removes placeholders for initial page load
+// API endpoint to get statistics
+app.get('/api/stats', (req, res) => {
+    const stats = loadStats();
+    res.json(stats);
+});
+
 app.get('/', (req, res) => {
     const html = TEMPLATE
         .replace(/\{\{TURNSTILE_SITE_KEY\}\}/g, TURNSTILE_SITE_KEY || '')
@@ -605,6 +636,11 @@ app.post('/', async (req, res) => {
         const cached = cache.get(docId);
         if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
             log(`[CACHE HIT] Document ${docId}`);
+
+            // Increment download counter
+            const totalDownloads = incrementDownloadCount();
+            log(`Total downloads: ${totalDownloads}`, true);
+
             resultHtml = '<div class="result success">✅ Success! (from cache)</div>';
             downloadHtml = `
                 <div class="action-buttons">
@@ -619,6 +655,10 @@ app.post('/', async (req, res) => {
 
                 // Cache the result
                 cache.set(docId, { url: downloadUrl, timestamp: Date.now() });
+
+                // Increment download counter
+                const totalDownloads = incrementDownloadCount();
+                log(`Total downloads: ${totalDownloads}`, true);
 
                 resultHtml = '<div class="result success">✅ Success!</div>';
                 downloadHtml = `
