@@ -23,6 +23,91 @@ const TEMPLATE = fs.readFileSync(path.join(__dirname, 'templates', 'index.html')
 const cache = new Map();
 const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 
+// Request Queue System
+const requestQueue = [];
+let isProcessing = false;
+const queueStatus = new Map(); // requestId -> status
+
+function generateRequestId() {
+    return `req_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+}
+
+async function addToQueue(requestId, docId, clientIp) {
+    const queueItem = {
+        requestId,
+        docId,
+        clientIp,
+        addedAt: Date.now(),
+        status: 'queued'
+    };
+
+    requestQueue.push(queueItem);
+    queueStatus.set(requestId, {
+        position: requestQueue.length,
+        status: 'queued',
+        addedAt: queueItem.addedAt
+    });
+
+    log(`[QUEUE] Added request ${requestId} for doc ${docId} (position: ${requestQueue.length})`, true);
+
+    // Start processing if not already running
+    if (!isProcessing) {
+        processQueue();
+    }
+
+    return requestId;
+}
+
+async function processQueue() {
+    if (isProcessing || requestQueue.length === 0) return;
+
+    isProcessing = true;
+
+    while (requestQueue.length > 0) {
+        const item = requestQueue.shift();
+
+        // Update positions for remaining items
+        requestQueue.forEach((q, idx) => {
+            queueStatus.set(q.requestId, {
+                ...queueStatus.get(q.requestId),
+                position: idx + 1
+            });
+        });
+
+        try {
+            log(`[QUEUE] Processing ${item.requestId} for doc ${item.docId}`, true);
+            queueStatus.set(item.requestId, {
+                ...queueStatus.get(item.requestId),
+                status: 'processing',
+                position: 0
+            });
+
+            const downloadUrl = await getPDFUrl(item.docId);
+
+            queueStatus.set(item.requestId, {
+                status: 'completed',
+                downloadUrl,
+                completedAt: Date.now()
+            });
+
+            log(`[QUEUE] Completed ${item.requestId}`, true);
+
+        } catch (error) {
+            log(`[QUEUE] Failed ${item.requestId}: ${error.message}`, true);
+            queueStatus.set(item.requestId, {
+                status: 'failed',
+                error: error.message,
+                failedAt: Date.now()
+            });
+        }
+
+        // Small delay between requests
+        await new Promise(resolve => setTimeout(resolve, 1000));
+    }
+
+    isProcessing = false;
+}
+
 // Rate limiting: max 10 requests per IP per minute
 const rateLimits = new Map();
 function checkRateLimit(ip) {
@@ -590,12 +675,36 @@ async function getPDFUrl(docId) {
 }
 
 // === ROUTE ===
-// GET route - removes placeholders for initial page load
 // API endpoint to get statistics
 app.get('/api/stats', (req, res) => {
     const stats = loadStats();
     res.json(stats);
 });
+
+// API endpoint to check queue status
+app.get('/api/queue/:requestId', (req, res) => {
+    const { requestId } = req.params;
+    const status = queueStatus.get(requestId);
+
+    if (!status) {
+        return res.status(404).json({ error: 'Request not found' });
+    }
+
+    // Calculate ETA based on position
+    let eta = null;
+    if (status.status === 'queued' && status.position > 0) {
+        // Estimate 30 seconds per request
+        eta = status.position * 30;
+    }
+
+    res.json({
+        ...status,
+        eta,
+        queueLength: requestQueue.length
+    });
+});
+
+// GET route - removes placeholders for initial page load
 
 app.get('/', (req, res) => {
     const html = TEMPLATE
@@ -632,63 +741,135 @@ app.post('/', async (req, res) => {
         return res.send(html);
     }
 
-    let resultHtml = '', downloadHtml = '';
     const url = req.body.url?.trim();
     log(`[${clientIp}] Link: ${url}`, true); // Send download requests to Discord
 
     const match = url.match(/\/document\/(\d+)/);
     if (!match) {
-        resultHtml = '<div class="result error">❌ Invalid Scribd URL</div>';
-    } else {
-        const docId = match[1];
+        const html = TEMPLATE
+            .replace(/\{\{TURNSTILE_SITE_KEY\}\}/g, TURNSTILE_SITE_KEY || '')
+            .replace(/\{\{result\}\}/g, '<div class="result error">❌ Invalid Scribd URL</div>')
+            .replace(/\{\{download_url\}\}/g, '');
+        return res.send(html);
+    }
 
-        // Check cache first
-        const cached = cache.get(docId);
-        if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
-            log(`[CACHE HIT] Document ${docId}`);
+    const docId = match[1];
 
-            // Increment download counter
-            const totalDownloads = incrementDownloadCount();
-            log(`Total downloads: ${totalDownloads}`, true);
+    // Check cache first - if cached, return immediately
+    const cached = cache.get(docId);
+    if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
+        log(`[CACHE HIT] Document ${docId}`);
 
-            resultHtml = '<div class="result success">✅ Success! (from cache)</div>';
-            downloadHtml = `
+        // Increment download counter
+        const totalDownloads = incrementDownloadCount();
+        log(`Total downloads: ${totalDownloads}`, true);
+
+        const html = TEMPLATE
+            .replace(/\{\{TURNSTILE_SITE_KEY\}\}/g, TURNSTILE_SITE_KEY || '')
+            .replace(/\{\{result\}\}/g, '<div class="result success">✅ Success! (from cache)</div>')
+            .replace(/\{\{download_url\}\}/g, `
                 <div class="action-buttons">
                     <a href="${cached.url}" target="_blank" class="download-btn">📥 Download PDF</a>
                     <button class="copy-btn" onclick="copyToClipboard('${cached.url}')">📋 Copy Link</button>
                 </div>
                 <span class="note">Link expires in 5 minutes</span>
-            `;
-        } else {
-            try {
-                const downloadUrl = await getPDFUrl(docId);
+            `);
+        return res.send(html);
+    }
 
-                // Cache the result
-                cache.set(docId, { url: downloadUrl, timestamp: Date.now() });
+    // Not in cache - add to queue and return request ID for polling
+    const requestId = generateRequestId();
+    await addToQueue(requestId, docId, clientIp);
 
-                // Increment download counter
-                const totalDownloads = incrementDownloadCount();
-                log(`Total downloads: ${totalDownloads}`, true);
+    // Return HTML with queue status checker
+    const html = TEMPLATE
+        .replace(/\{\{TURNSTILE_SITE_KEY\}\}/g, TURNSTILE_SITE_KEY || '')
+        .replace(/\{\{result\}\}/g, `
+            <div class="result info" id="queueStatus">
+                ⏳ Đang xử lý... Vui lòng chờ
+                <div style="margin-top: 10px; font-size: 14px;">
+                    <span id="queuePosition"></span>
+                    <span id="queueEta" style="display: block; margin-top: 5px; opacity: 0.8;"></span>
+                </div>
+            </div>
+        `)
+        .replace(/\{\{download_url\}\}/g, `
+            <script>
+                const requestId = '${requestId}';
+                let pollInterval;
 
-                resultHtml = '<div class="result success">✅ Success!</div>';
-                downloadHtml = `
-                    <div class="action-buttons">
-                        <a href="${downloadUrl}" target="_blank" class="download-btn">📥 Download PDF</a>
-                        <button class="copy-btn" onclick="copyToClipboard('${downloadUrl}')">📋 Copy Link</button>
-                    </div>
-                    <span class="note">Link expires in 5 minutes</span>
-                `;
-            } catch (e) {
-                resultHtml = `<div class="result error">❌ Error: ${e.message}</div>`;
-                log(`[ERROR] ${e.message}`, true); // Send errors to Discord
-            }
-        }
+                async function checkQueueStatus() {
+                    try {
+                        const res = await fetch('/api/queue/' + requestId);
+                        const data = await res.json();
+
+                        if (data.status === 'queued') {
+                            document.getElementById('queuePosition').textContent =
+                                'Vị trí trong hàng đợi: #' + data.position;
+                            if (data.eta) {
+                                document.getElementById('queueEta').textContent =
+                                    'Ước tính: ~' + data.eta + ' giây';
+                            }
+                        } else if (data.status === 'processing') {
+                            document.getElementById('queuePosition').textContent = 'Đang xử lý yêu cầu của bạn...';
+                            document.getElementById('queueEta').textContent = '';
+                        } else if (data.status === 'completed') {
+                            clearInterval(pollInterval);
+                            // Reload page to show result
+                            window.location.href = '/result/' + requestId;
+                        } else if (data.status === 'failed') {
+                            clearInterval(pollInterval);
+                            document.getElementById('queueStatus').innerHTML =
+                                '<div class="result error">❌ Error: ' + data.error + '</div>';
+                        }
+                    } catch (e) {
+                        console.error('Queue check failed:', e);
+                    }
+                }
+
+                // Check immediately and then every 2 seconds
+                checkQueueStatus();
+                pollInterval = setInterval(checkQueueStatus, 2000);
+            </script>
+        `);
+
+    res.send(html);
+});
+
+// Result page after queue completes
+app.get('/result/:requestId', (req, res) => {
+    const { requestId } = req.params;
+    const status = queueStatus.get(requestId);
+
+    if (!status || status.status !== 'completed') {
+        return res.redirect('/');
+    }
+
+    // Increment download counter
+    const totalDownloads = incrementDownloadCount();
+    log(`Total downloads: ${totalDownloads}`, true);
+
+    // Cache the result
+    const match = status.downloadUrl.match(/\/document\/(\d+)/);
+    if (match) {
+        const docId = match[1];
+        cache.set(docId, { url: status.downloadUrl, timestamp: Date.now() });
     }
 
     const html = TEMPLATE
         .replace(/\{\{TURNSTILE_SITE_KEY\}\}/g, TURNSTILE_SITE_KEY || '')
-        .replace(/\{\{result\}\}/g, resultHtml)
-        .replace(/\{\{download_url\}\}/g, downloadHtml);
+        .replace(/\{\{result\}\}/g, '<div class="result success">✅ Success!</div>')
+        .replace(/\{\{download_url\}\}/g, `
+            <div class="action-buttons">
+                <a href="${status.downloadUrl}" target="_blank" class="download-btn">📥 Download PDF</a>
+                <button class="copy-btn" onclick="copyToClipboard('${status.downloadUrl}')">📋 Copy Link</button>
+            </div>
+            <span class="note">Link expires in 5 minutes</span>
+        `);
+
+    // Clean up old queue status (keep for 5 minutes)
+    setTimeout(() => queueStatus.delete(requestId), 5 * 60 * 1000);
+
     res.send(html);
 });
 
