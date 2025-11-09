@@ -17,8 +17,11 @@ services:
       - ZOHO_IMAP_PORT=${ZOHO_IMAP_PORT}
       - TURNSTILE_SITE_KEY=${TURNSTILE_SITE_KEY}
       - TURNSTILE_SECRET_KEY=${TURNSTILE_SECRET_KEY}
+      - DISCORD_ALERT_WEBHOOK=${DISCORD_ALERT_WEBHOOK}
+      - DISCORD_LOG_WEBHOOK=${DISCORD_LOG_WEBHOOK}
     volumes:
       - ./cookies.json:/app/cookies.json
+      - ./stats.json:/app/stats.json
       - ./logs:/app/logs
     healthcheck:
       test: ["CMD", "node", "-e", "require('http').get('http://localhost:5099', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})"]
