@@ -79,10 +79,20 @@ const STATS_PATH = path.join(__dirname, 'stats.json');
 
 // Load/save download statistics
 function loadStats() {
+    // Fix if stats.json is a directory (Docker mount issue)
     if (fs.existsSync(STATS_PATH)) {
+        const stat = fs.statSync(STATS_PATH);
+        if (stat.isDirectory()) {
+            console.log('[WARNING] stats.json is a directory, removing it...');
+            fs.rmSync(STATS_PATH, { recursive: true, force: true });
+        }
+    }
+
+    if (fs.existsSync(STATS_PATH) && fs.statSync(STATS_PATH).isFile()) {
         try {
             return JSON.parse(fs.readFileSync(STATS_PATH, 'utf-8'));
         } catch (e) {
+            console.log('[WARNING] Failed to parse stats.json, resetting...');
             return { totalDownloads: 0, lastUpdated: new Date().toISOString() };
         }
     }
