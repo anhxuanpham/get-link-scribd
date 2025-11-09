@@ -664,9 +664,43 @@ async function getPDFUrl(docId) {
     // Chờ một chút để download request được gửi đi
     await page.waitForTimeout(5000);
 
+    // Fallback: Nếu không bắt được từ network, thử extract từ DOM
+    if (!downloadUrl) {
+        log("Không bắt được từ network, thử extract từ DOM...");
+
+        downloadUrl = await page.evaluate(() => {
+            // Tìm link có href chứa download hoặc pdf
+            const links = Array.from(document.querySelectorAll('a[href*="download"], a[href*=".pdf"], a[href*="dl.scribd"]'));
+            if (links.length > 0) {
+                return links[0].href;
+            }
+
+            // Tìm trong các button/div có data attributes
+            const elements = Array.from(document.querySelectorAll('[data-download-url], [data-href], [href]'));
+            for (const el of elements) {
+                const url = el.getAttribute('data-download-url') ||
+                           el.getAttribute('data-href') ||
+                           el.getAttribute('href') || '';
+                if (url && (url.includes('download') || url.includes('.pdf') || url.includes('dl.scribd'))) {
+                    return url.startsWith('http') ? url : 'https://www.scribd.com' + url;
+                }
+            }
+
+            return null;
+        });
+    }
+
     if (!downloadUrl) {
         await page.screenshot({ path: 'no_download_url.png' });
-        throw new Error("Không bắt được download URL từ network");
+
+        // Debug: Log HTML của modal
+        const modalHtml = await page.evaluate(() => {
+            const modal = document.querySelector('[role="dialog"], .modal, [class*="modal"]');
+            return modal ? modal.innerHTML : 'No modal found';
+        });
+        log(`Modal HTML: ${modalHtml.substring(0, 500)}...`);
+
+        throw new Error("Không bắt được download URL từ network và DOM");
     }
 
     log(`✅ PDF LINK: ${downloadUrl}`);
