@@ -146,8 +146,9 @@ async function loginScribd() {
     }
 
     log("Khởi động Puppeteer + Stealth");
-    browser = await puppeteer.launch({
-        headless: 'new',  // Dùng new headless mode
+
+    const launchOptions = {
+        headless: 'new',
         args: [
             '--no-sandbox',
             '--disable-setuid-sandbox',
@@ -155,9 +156,20 @@ async function loginScribd() {
             '--disable-dev-shm-usage',
             '--disable-gpu',
             '--disable-web-security',
-            '--disable-features=IsolateOrigins,site-per-process'
+            '--disable-features=IsolateOrigins,site-per-process',
+            '--disable-software-rasterizer',
+            '--disable-dev-shm-usage',
+            '--single-process',
+            '--no-zygote'
         ]
-    });
+    };
+
+    // Use system Chromium in production (Docker)
+    if (process.env.PUPPETEER_EXECUTABLE_PATH) {
+        launchOptions.executablePath = process.env.PUPPETEER_EXECUTABLE_PATH;
+    }
+
+    browser = await puppeteer.launch(launchOptions);
 
     const page = await browser.newPage();
 
@@ -583,10 +595,17 @@ app.get('/setup', async (req, res) => {
     try {
         log("Mở browser để bạn login thủ công...");
 
-        const setupBrowser = await puppeteer.launch({
+        const setupLaunchOptions = {
             headless: false,  // Hiện browser
             args: ['--no-sandbox', '--start-maximized']
-        });
+        };
+
+        // Use system Chromium in production (Docker)
+        if (process.env.PUPPETEER_EXECUTABLE_PATH) {
+            setupLaunchOptions.executablePath = process.env.PUPPETEER_EXECUTABLE_PATH;
+        }
+
+        const setupBrowser = await puppeteer.launch(setupLaunchOptions);
 
         const page = await setupBrowser.newPage();
         await page.setViewport({ width: 1920, height: 1080 });
