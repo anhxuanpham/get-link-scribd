@@ -64,7 +64,8 @@ async function verifyTurnstile(token) {
 const {
     SCRIBD_EMAIL, SCRIBD_PASSWORD,
     ZOHO_EMAIL, ZOHO_PASSWORD, ZOHO_IMAP_SERVER, ZOHO_IMAP_PORT,
-    TURNSTILE_SITE_KEY, TURNSTILE_SECRET_KEY
+    TURNSTILE_SITE_KEY, TURNSTILE_SECRET_KEY,
+    DISCORD_ALERT_WEBHOOK, DISCORD_LOG_WEBHOOK
 } = process.env;
 
 // Debug: Log password length to verify it's loaded correctly
@@ -75,8 +76,58 @@ let lastLogin = 0;
 const SESSION_TTL = 3600 * 1000;
 const COOKIES_PATH = path.join(__dirname, 'cookies.json');
 
-function log(msg) {
-    console.log(`[LOG ${new Date().toLocaleTimeString()}] ${msg}`);
+function log(msg, sendToDiscord = false) {
+    const timestamp = new Date().toLocaleTimeString();
+    console.log(`[LOG ${timestamp}] ${msg}`);
+
+    // Only send important logs to Discord to avoid spam
+    if (sendToDiscord && DISCORD_LOG_WEBHOOK) {
+        sendDiscordLog(msg).catch(err => console.error('Discord log failed:', err));
+    }
+}
+
+// Send alert to Discord (for critical issues like cookie expiration)
+async function sendDiscordAlert(message) {
+    if (!DISCORD_ALERT_WEBHOOK) return;
+
+    try {
+        await fetch(DISCORD_ALERT_WEBHOOK, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                embeds: [{
+                    title: '🚨 SCRIBD ALERT',
+                    description: message,
+                    color: 15158332, // Red color
+                    timestamp: new Date().toISOString(),
+                    footer: { text: 'Scribd Downloader' }
+                }]
+            })
+        });
+    } catch (e) {
+        console.error(`Discord alert failed: ${e.message}`);
+    }
+}
+
+// Send log to Discord (for general monitoring)
+async function sendDiscordLog(message) {
+    if (!DISCORD_LOG_WEBHOOK) return;
+
+    try {
+        await fetch(DISCORD_LOG_WEBHOOK, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                embeds: [{
+                    description: message,
+                    color: 3447003, // Blue color
+                    timestamp: new Date().toISOString()
+                }]
+            })
+        });
+    } catch (e) {
+        console.error(`Discord log failed: ${e.message}`);
+    }
 }
 
 // === LẤY OTP TỪ ZOHO ===
@@ -195,6 +246,7 @@ async function loginScribd() {
             return browser;
         } else {
             log("Cookies hết hạn, cần login lại");
+            await sendDiscordAlert('⚠️ **Cookies đã hết hạn!**\n\nHệ thống đang thử login lại với email/password.\nNếu có 2FA, có thể cần can thiệp thủ công.');
         }
     }
 
@@ -405,12 +457,18 @@ async function loginScribd() {
     if (finalUrl.includes('login') || finalUrl.includes('auth0.com') || finalUrl.includes('auth.scribd.com')) {
         // Vẫn ở trang login = login failed
         await page.screenshot({ path: 'login_failed.png' });
+        await sendDiscordAlert('❌ **Login thất bại!**\n\nHệ thống không thể đăng nhập vào Scribd.\nVui lòng kiểm tra credentials hoặc login thủ công.');
         throw new Error("Login thất bại - vẫn ở trang login");
     }
 
     // Nếu không còn ở login page = success
     log("LOGIN THÀNH CÔNG!");
+    await sendDiscordAlert('✅ **Login thành công!**\n\nHệ thống đã đăng nhập vào Scribd thành công.');
     lastLogin = Date.now();
+
+    // Save cookies sau khi login thành công
+    await saveCookies(page);
+
     return browser;
 }
 
@@ -535,7 +593,7 @@ app.post('/', async (req, res) => {
 
     let resultHtml = '', downloadHtml = '';
     const url = req.body.url?.trim();
-    log(`[${clientIp}] Link: ${url}`);
+    log(`[${clientIp}] Link: ${url}`, true); // Send download requests to Discord
 
     const match = url.match(/\/document\/(\d+)/);
     if (!match) {
@@ -572,7 +630,7 @@ app.post('/', async (req, res) => {
                 `;
             } catch (e) {
                 resultHtml = `<div class="result error">❌ Error: ${e.message}</div>`;
-                log(`[ERROR] ${e.message}`);
+                log(`[ERROR] ${e.message}`, true); // Send errors to Discord
             }
         }
     }
@@ -660,8 +718,13 @@ app.post('/setup/save', async (req, res) => {
     }
 });
 
-app.listen(PORT, () => {
+app.listen(PORT, async () => {
     console.log(`\nWEB CHẠY TẠI: http://localhost:${PORT}`);
     console.log(`Lần đầu dùng? Vào http://localhost:${PORT}/setup để login`);
     console.log(`LOG SẼ HIỆN DƯỚI ĐÂY:\n`);
+
+    // Send startup notification to Discord
+    if (DISCORD_LOG_WEBHOOK) {
+        await sendDiscordLog(`🚀 **Server khởi động thành công!**\n\nĐang chạy tại port ${PORT}\nTimestamp: ${new Date().toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' })}`);
+    }
 });
