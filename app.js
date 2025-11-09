@@ -608,7 +608,7 @@ app.post('/', async (req, res) => {
             resultHtml = '<div class="result success">✅ Success! (from cache)</div>';
             downloadHtml = `
                 <div class="action-buttons">
-                    <a href="${cached.url}" target="_blank" class="download-btn" onmousedown="incrementDownloads()">📥 Download PDF</a>
+                    <a href="${cached.url}" target="_blank" class="download-btn">📥 Download PDF</a>
                     <button class="copy-btn" onclick="copyToClipboard('${cached.url}')">📋 Copy Link</button>
                 </div>
                 <span class="note">Link expires in 5 minutes</span>
@@ -623,7 +623,7 @@ app.post('/', async (req, res) => {
                 resultHtml = '<div class="result success">✅ Success!</div>';
                 downloadHtml = `
                     <div class="action-buttons">
-                        <a href="${downloadUrl}" target="_blank" class="download-btn" onmousedown="incrementDownloads()">📥 Download PDF</a>
+                        <a href="${downloadUrl}" target="_blank" class="download-btn">📥 Download PDF</a>
                         <button class="copy-btn" onclick="copyToClipboard('${downloadUrl}')">📋 Copy Link</button>
                     </div>
                     <span class="note">Link expires in 5 minutes</span>
