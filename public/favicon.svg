@@ -1,0 +1,20 @@
+<svg width="128" height="128" viewBox="0 0 128 128" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Background circle with gradient -->
+  <circle cx="64" cy="64" r="64" fill="url(#gradient)"/>
+
+  <!-- PDF icon -->
+  <path d="M44 32C41.7909 32 40 33.7909 40 36V92C40 94.2091 41.7909 96 44 96H84C86.2091 96 88 94.2091 88 92V48L72 32H44Z" fill="white"/>
+  <path d="M72 32V48H88L72 32Z" fill="#E5E7EB"/>
+
+  <!-- Download arrow -->
+  <path d="M64 52V76M64 76L56 68M64 76L72 68" stroke="#667EEA" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M52 84H76" stroke="#667EEA" stroke-width="4" stroke-linecap="round"/>
+
+  <!-- Gradient definition -->
+  <defs>
+    <linearGradient id="gradient" x1="0" y1="0" x2="128" y2="128" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#667EEA"/>
+      <stop offset="1" stop-color="#764BA2"/>
+    </linearGradient>
+  </defs>
+</svg>

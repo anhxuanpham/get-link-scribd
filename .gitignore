@@ -1,0 +1,46 @@
+# Node
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Environment variables
+.env
+.env.local
+.env.production
+
+# Cookies (sensitive)
+cookies.json
+cookies.backup.json
+
+# Logs
+*.log
+logs/
+
+# Puppeteer
+.cache/
+*.png
+*.html
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Build
+dist/
+build/
+
+# PM2
+.pm2/
+
+# Claude Code
+.claude/
+
+# Windows nul file
+nul

@@ -1,0 +1,12 @@
+name = "scribd-downloader"
+main = "worker.js"
+compatibility_date = "2024-01-01"
+
+# Route configuration for custom domain
+routes = [
+  { pattern = "getdpf.org/*", zone_name = "getdpf.org" },
+  { pattern = "www.getdpf.org/*", zone_name = "getdpf.org" }
+]
+
+[observability]
+enabled = true

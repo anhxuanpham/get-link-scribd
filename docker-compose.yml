@@ -1,0 +1,43 @@
+version: '3.8'
+
+services:
+  app:
+    build: .
+    container_name: scribd-downloader
+    restart: unless-stopped
+    ports:
+      - "5099:5099"
+    environment:
+      - NODE_ENV=production
+      - SCRIBD_EMAIL=${SCRIBD_EMAIL}
+      - SCRIBD_PASSWORD=${SCRIBD_PASSWORD}
+      - ZOHO_EMAIL=${ZOHO_EMAIL}
+      - ZOHO_PASSWORD=${ZOHO_PASSWORD}
+      - ZOHO_IMAP_SERVER=${ZOHO_IMAP_SERVER}
+      - ZOHO_IMAP_PORT=${ZOHO_IMAP_PORT}
+      - TURNSTILE_SITE_KEY=${TURNSTILE_SITE_KEY}
+      - TURNSTILE_SECRET_KEY=${TURNSTILE_SECRET_KEY}
+    volumes:
+      - ./cookies.json:/app/cookies.json
+      - ./logs:/app/logs
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:5099', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - app-network
+    # Security options
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - SETGID
+      - SETUID
+
+networks:
+  app-network:
+    driver: bridge
