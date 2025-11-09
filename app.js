@@ -17,7 +17,7 @@ app.use(express.urlencoded({ extended: true }));
 // Serve static files (favicon, etc.)
 app.use(express.static('public'));
 
-const TEMPLATE = fs.readFileSync(path.join(__dirname, 'templates', 'index_v2.html'), 'utf-8');
+const TEMPLATE = fs.readFileSync(path.join(__dirname, 'templates', 'index.html'), 'utf-8');
 
 // Simple in-memory cache for download links (5 minutes TTL)
 const cache = new Map();
