@@ -623,6 +623,61 @@ async function getPDFUrl(docId) {
     const url = `https://www.scribd.com/document/${docId}/`;
     await page.goto(url, { waitUntil: 'networkidle2' });
 
+    // Try direct download URL first (bypass modal completely)
+    log("Thử truy cập download URL trực tiếp...");
+    const directDownloadUrl = `https://www.scribd.com/document_downloads/${docId}?extension=pdf&from=download_page`;
+
+    try {
+        await page.goto(directDownloadUrl, { waitUntil: 'networkidle2', timeout: 10000 });
+    } catch (e) {
+        // ERR_ABORTED is OK - it means download started and network listener caught it
+        if (e.message && e.message.includes('ERR_ABORTED')) {
+            log("Download bắt đầu (ERR_ABORTED), kiểm tra downloadUrl...");
+            await page.waitForTimeout(2000);
+
+            if (downloadUrl) {
+                log(`✅ Đã bắt được download URL từ network: ${downloadUrl}`);
+                return downloadUrl;
+            }
+        }
+    }
+
+    // Check if we already have downloadUrl from network listener
+    if (downloadUrl) {
+        log(`✅ Direct download thành công: ${downloadUrl}`);
+        return downloadUrl;
+    }
+
+    log("Direct download không work, quay lại trang document...");
+    await page.goto(url, { waitUntil: 'networkidle2' });
+
+    // Remove ALL cookie consent popups from DOM
+    log("Kiểm tra và xóa cookie popup...");
+    try {
+        await page.waitForTimeout(2000);
+
+        // Remove Osano cookie consent completely from DOM
+        await page.evaluate(() => {
+            // Remove all osano elements
+            const osanoElements = document.querySelectorAll('[class*="osano"]');
+            osanoElements.forEach(el => el.remove());
+
+            // Remove cookie consent containers
+            const cookieContainers = document.querySelectorAll('[id*="cookie"], [class*="cookie"], [id*="consent"], [class*="consent"]');
+            cookieContainers.forEach(el => {
+                if (el.textContent.toLowerCase().includes('cookie') ||
+                    el.textContent.toLowerCase().includes('privacy')) {
+                    el.remove();
+                }
+            });
+        });
+
+        log("Đã xóa cookie popup khỏi DOM");
+        await page.waitForTimeout(1000);
+    } catch (e) {
+        log("Không có cookie popup hoặc đã xóa rồi");
+    }
+
     // Tìm và click nút Download
     log("Tìm nút Download...");
     const downloadButtonXPath = '//button[contains(., "Download")] | //a[contains(., "Download")]';
@@ -640,29 +695,63 @@ async function getPDFUrl(docId) {
     await page.waitForTimeout(3000);
     log("Modal download đã mở");
 
-    // Click button "Download document" trong modal
-    log("Click button 'Download document' trong modal...");
-    const clicked = await page.evaluate(() => {
-        const elements = Array.from(document.querySelectorAll('button, a, div[role="button"]'));
-        const downloadBtn = elements.find(el =>
-            el.textContent.trim().toLowerCase().includes('download document')
-        );
+    // Try to extract download URL directly from page
+    log("Tìm download URL trong page...");
 
-        if (downloadBtn) {
-            downloadBtn.click();
-            return true;
+    // Check if download modal opened with direct download link
+    downloadUrl = await page.evaluate(() => {
+        // Look for download links in modal, buttons, or anywhere on page
+        const selectors = [
+            'a[href*="/download/"]',
+            'a[href*=".pdf"]',
+            'a[href*="dl.scribd"]',
+            'button[data-url*="download"]',
+            '[data-download-url]'
+        ];
+
+        for (const selector of selectors) {
+            const elements = document.querySelectorAll(selector);
+            if (elements.length > 0) {
+                const href = elements[0].getAttribute('href') ||
+                           elements[0].getAttribute('data-url') ||
+                           elements[0].getAttribute('data-download-url');
+                if (href) return href;
+            }
         }
-        return false;
+        return null;
     });
 
-    if (!clicked) {
-        throw new Error("Không tìm thấy button 'Download document' trong modal");
+    if (downloadUrl) {
+        log(`Tìm thấy download URL từ DOM: ${downloadUrl}`);
+    } else {
+        // Fallback: Try clicking download button in modal if exists
+        log("Không tìm thấy URL trực tiếp, thử click button trong modal...");
+
+        const clicked = await page.evaluate(() => {
+            const elements = Array.from(document.querySelectorAll('button, a, div[role="button"]'));
+
+            // Find download button (more specific - avoid navigation buttons)
+            const downloadBtn = elements.find(el => {
+                const text = el.textContent.trim().toLowerCase();
+                const isVisible = el.offsetParent !== null;
+                return isVisible && text === 'download' && el.tagName !== 'NAV';
+            });
+
+            if (downloadBtn) {
+                downloadBtn.click();
+                return true;
+            }
+            return false;
+        });
+
+        if (clicked) {
+            log("Đã click button download, chờ URL...");
+            await page.waitForTimeout(5000);
+        }
     }
 
-    log("Đã click button Download document, chờ download URL...");
-
     // Chờ một chút để download request được gửi đi
-    await page.waitForTimeout(5000);
+    await page.waitForTimeout(2000);
 
     // Fallback: Nếu không bắt được từ network, thử extract từ DOM
     if (!downloadUrl) {
